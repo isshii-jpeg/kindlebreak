@@ -18,6 +18,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import pyautogui
 import numpy as np
 from PIL import Image
