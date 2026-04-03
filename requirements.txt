@@ -3,3 +3,4 @@ Pillow
 numpy
 google-generativeai
 python-dotenv
+pymupdf
