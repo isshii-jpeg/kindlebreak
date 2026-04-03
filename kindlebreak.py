@@ -181,20 +181,33 @@ def pngs_to_pdf(image_dir: Path, output_pdf: Path):
 # ============================================================
 # Gemini OCR
 # ============================================================
-def ocr_with_gemini(png_files: list[Path], output_text: Path):
-    """キャプチャ画像をGemini APIに送ってOCRする。"""
+def pdf_to_images(pdf_path: Path) -> list[Image.Image]:
+    """PDFファイルを画像のリストに変換する。"""
+    import fitz
+    doc = fitz.open(str(pdf_path))
+    images = []
+    for page in doc:
+        pix = page.get_pixmap(dpi=150)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        images.append(img)
+    doc.close()
+    return images
+
+
+def ocr_with_gemini(images: list[Image.Image], output_text: Path):
+    """画像リストをGemini APIに送ってOCRする。"""
     import google.generativeai as genai
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("エラー: GEMINI_API_KEY 環境変数が設定されていません。")
-        print("  export GEMINI_API_KEY='your-api-key' を実行してください。")
+        print("  .env ファイルに GEMINI_API_KEY=your-key を設定してください。")
         sys.exit(1)
 
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
 
-    total = len(png_files)
+    total = len(images)
     batch_size = cfg.GEMINI_BATCH_SIZE
     all_text = []
 
@@ -202,22 +215,13 @@ def ocr_with_gemini(png_files: list[Path], output_text: Path):
 
     for batch_start in range(0, total, batch_size):
         batch_end = min(batch_start + batch_size, total)
-        batch_files = png_files[batch_start:batch_end]
+        batch_images = images[batch_start:batch_end]
         page_from = batch_start + 1
         page_to = batch_end
 
         print(f"  処理中: ページ {page_from}-{page_to} / {total} ...", end="", flush=True)
 
-        # 画像をアップロード
-        images = []
-        for f in batch_files:
-            img = Image.open(f)
-            images.append(img)
-
-        prompt_parts = []
-        for img in images:
-            prompt_parts.append(img)
-
+        prompt_parts = list(batch_images)
         prompt_parts.append(
             "これらは本のページの画像です。各ページのテキストを正確に書き起こしてください。"
             "ページ間は空行で区切ってください。"
@@ -320,21 +324,32 @@ def run(start_page: int = 1):
     png_files = pngs_to_pdf(output_dir, pdf_path)
 
     # ── ステップ3: Gemini OCR ──
+    print("\n画像を読み込み中...")
+    images = [Image.open(f) for f in png_files]
     text_path = Path(cfg.OUTPUT_TEXT)
-    ocr_with_gemini(png_files, text_path)
+    ocr_with_gemini(images, text_path)
 
 
-def ocr_only():
-    """既存のキャプチャ画像からPDF化 & OCRだけ実行する。"""
-    output_dir = Path(cfg.OUTPUT_DIR)
+def ocr_only(pdf_file: str = None):
+    """PDFまたは既存キャプチャ画像からOCRを実行する。"""
+    if pdf_file:
+        # 外部PDFファイルを直接OCR
+        pdf_path = Path(pdf_file)
+        if not pdf_path.exists():
+            print(f"エラー: ファイルが見つかりません: {pdf_path}")
+            sys.exit(1)
+        print(f"PDF読み込み中: {pdf_path}")
+        images = pdf_to_images(pdf_path)
+        print(f"  {len(images)} ページ検出")
+    else:
+        # キャプチャ画像からPDF化 & OCR
+        output_dir = Path(cfg.OUTPUT_DIR)
+        pdf_path = Path(cfg.OUTPUT_PDF)
+        png_files = pngs_to_pdf(output_dir, pdf_path)
+        images = [Image.open(f) for f in png_files]
 
-    # PDF化
-    pdf_path = Path(cfg.OUTPUT_PDF)
-    png_files = pngs_to_pdf(output_dir, pdf_path)
-
-    # Gemini OCR
     text_path = Path(cfg.OUTPUT_TEXT)
-    ocr_with_gemini(png_files, text_path)
+    ocr_with_gemini(images, text_path)
 
 
 # ============================================================
@@ -350,14 +365,18 @@ def main():
         help="開始ページ番号（レジュームに使用）"
     )
 
-    subparsers.add_parser("ocr", help="既存のキャプチャ画像からPDF化 & OCRだけ実行")
+    ocr_parser = subparsers.add_parser("ocr", help="PDFまたはキャプチャ画像からOCR実行")
+    ocr_parser.add_argument(
+        "pdf", nargs="?", default=None,
+        help="OCR対象のPDFファイルパス（省略時はキャプチャ画像を使用）"
+    )
 
     args = parser.parse_args()
 
     if args.command == "run":
         run(start_page=args.start_page)
     elif args.command == "ocr":
-        ocr_only()
+        ocr_only(pdf_file=args.pdf)
     else:
         parser.print_help()
 
