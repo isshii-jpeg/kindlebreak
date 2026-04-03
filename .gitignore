@@ -1,0 +1,7 @@
+.env
+.venv/
+pages/
+book.pdf
+output.txt
+debug.png
+__pycache__/
