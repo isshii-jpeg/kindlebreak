@@ -5,3 +5,5 @@ book.pdf
 output.txt
 debug.png
 __pycache__/
+books/
+*.DS_Store
