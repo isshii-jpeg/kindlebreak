@@ -2,6 +2,7 @@
 .venv/
 pages/
 book.pdf
+document.pdf
 output.txt
 debug.png
 __pycache__/
